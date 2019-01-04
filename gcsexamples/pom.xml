@@ -15,7 +15,7 @@
     <dependency>
       <groupId>com.ionicsecurity.ipcs.google</groupId>
       <artifactId>ionicgcs</artifactId>
-      <version>0.9.0</version>
+      <version>0.9.1</version>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
