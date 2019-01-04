@@ -1,3 +1,2 @@
 #!/bin/bash
-
-java -jar gcsexamples/target/GCSSampleApp.jar "$@" 
+java -jar target/IonicGCSSampleApp.jar "$@"
