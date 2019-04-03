@@ -1,9 +1,8 @@
-.DS_Store
-target
-*.log
-
-# IDEs
 .classpath
+*.log
 .project
 .idea
 .settings
+.DS_Store
+bin/
+target/
