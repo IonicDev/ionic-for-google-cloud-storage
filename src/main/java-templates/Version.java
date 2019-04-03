@@ -1,4 +1,4 @@
-package com.ionicsecurity.ipcs.google;
+package com.ionic.cloudstorage.gcs;
 
 public final class Version {
 
@@ -10,32 +10,31 @@ public final class Version {
     public static String getMajorVersion() {
         return VERSION.split("\\.")[0];
     }
-    
+
     public static String getMinorVersion() {
         return VERSION.split("\\.")[1];
     }
-    
+
     public static String getPatchVersion() {
         return VERSION.split("\\.")[2];
     }
-    
-    public static String getBuild()
-    {
+
+    public static String getBuild() {
         return BUILD;
     }
-    
+
     public static String getGroupId() {
         return GROUPID;
     }
-    
+
     public static String getArtifactId() {
         return ARTIFACTID;
     }
-    
+
     public static String getVersion() {
         return VERSION;
     }
-    
+
     public static String getFullVersion() {
         return VERSION + "-" + BUILD;
     }
