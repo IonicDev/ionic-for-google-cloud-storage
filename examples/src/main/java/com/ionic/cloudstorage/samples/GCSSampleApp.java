@@ -1,10 +1,24 @@
 /*
- * (c) 2017-2019 Ionic Security Inc. By using this code, I agree to the Terms & Conditions
+ * (c) 2017-2020 Ionic Security Inc. By using this code, I agree to the Terms & Conditions
  * (https://dev.ionic.com/use) and the Privacy Policy (https://www.ionic.com/privacy-notice/).
  */
 
 package com.ionic.cloudstorage.samples;
 
+import com.google.api.client.util.StringUtils;
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageOptions;
+import com.ionic.cloudstorage.gcs.GoogleIonicStorage;
+import com.ionic.cloudstorage.gcs.Version;
+import com.ionic.sdk.agent.Agent;
+import com.ionic.sdk.agent.data.MetadataMap;
+import com.ionic.sdk.agent.key.KeyAttributesMap;
+import com.ionic.sdk.agent.request.createkey.CreateKeysRequest;
+import com.ionic.sdk.device.profile.persistor.DeviceProfilePersistorPlainText;
+import com.ionic.sdk.error.IonicException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,19 +26,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import com.google.api.client.util.StringUtils;
-import com.google.cloud.storage.BlobInfo;
-import com.google.cloud.storage.Blob;
-import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.Storage;
-import com.google.cloud.storage.StorageOptions;
-import com.ionic.cloudstorage.gcs.GoogleIonicStorage;
-import com.ionic.cloudstorage.gcs.Version;
-import com.ionic.sdk.agent.data.MetadataMap;
-import com.ionic.sdk.agent.key.KeyAttributesMap;
-import com.ionic.sdk.agent.request.createkey.CreateKeysRequest;
-import com.ionic.sdk.device.profile.persistor.DeviceProfilePersistorPlainText;
-import com.ionic.sdk.error.IonicException;
 import org.apache.commons.io.FileUtils;
 
 
@@ -44,8 +45,6 @@ public class GCSSampleApp {
         }
     }
 
-    public static final boolean useSandbox = true; // if true limit file paths to within user's home
-                                                   // dir
     private static String HOME = System.getProperty("user.home");
 
     private static GoogleIonicStorage initializeGIS(Storage storage)
@@ -55,17 +54,12 @@ public class GCSSampleApp {
         // google storage as the backing service for this object.
 
         // Load a plain-text device profile (SEP) from disk
-        DeviceProfilePersistorPlainText ptPersistor = new DeviceProfilePersistorPlainText();
-
-        String sProfilePath =
+        String peristorPath =
                 Paths.get(HOME + "/.ionicsecurity/profiles.pt").toFile().getCanonicalPath();
-        ptPersistor.setFilePath(sProfilePath);
+        Agent agent = new Agent(new DeviceProfilePersistorPlainText(peristorPath));
+        agent.setMetadata(getMetadataMap());
 
-        GoogleIonicStorage ionicStorage = new GoogleIonicStorage(ptPersistor, storage);
-
-        ionicStorage.setIonicMetadataMap(getMetadataMap());
-
-        return ionicStorage;
+        return new GoogleIonicStorage(agent, storage);
     }
 
     static void putFile(String bucketName, String blobName, String filePath,
@@ -76,12 +70,6 @@ public class GCSSampleApp {
 
         if ((srcFilePathStr == null) || (srcFilePathStr.isEmpty())) {
             System.err.println("No filepath specified");
-            return;
-        }
-
-        // Sandbox within user home
-        if ((useSandbox) && (!srcFilePathStr.startsWith(HOME))) {
-            System.err.println("Filepath outside of user home");
             return;
         }
 
@@ -141,15 +129,7 @@ public class GCSSampleApp {
             return;
         }
 
-        Path destFilePath = null;
-
-        // Sandbox within user home
-        if ((useSandbox) && (!destFilePathStr.startsWith(HOME))) {
-            System.err.println("Filepath outside of user home");
-            return;
-        }
-
-        destFilePath = Paths.get(destFilePathStr);
+        Path destFilePath = Paths.get(destFilePathStr);
 
         // Check if file already exists but is not a file (e.g. don't try to overwrite a directory)
         if ((Files.exists(destFilePath)) && (!Files.isRegularFile(destFilePath))) {
@@ -214,15 +194,12 @@ public class GCSSampleApp {
 
         // Get bucketName arg
         String bucketName = new String(StringUtils.getBytesUtf8(args[1]));
-        // Note: GCSSampleApp does not protect against invalid entry of GCS bucket names
-        // Current Rules for naming GCS buckets at:
-        // https://
-
         // Get Object Key arg
         String blobName = new String(StringUtils.getBytesUtf8(args[2]));
-        // Note: GCSSampleApp does not protect against invalid entry of GCS blob name
-        // Current Rules for specifying GCS Blob names at:
-        // https://
+        // Note: GCSSampleApp does not protect against invalid entry of GCS
+        // blob or bucket names.
+        // Current Rules for specifying GCS Bucket and Blob names at:
+        // https://cloud.google.com/storage/docs/naming
 
         GoogleIonicStorage storage;
         try {
@@ -230,6 +207,12 @@ public class GCSSampleApp {
         } catch (IonicException e) {
             System.err.println("Can't get agent: " + e.getMessage());
             return;
+        }
+
+        if (storage.get(bucketName, Storage.BucketGetOption.fields()) == null) {
+            System.err.println("Bucket " + bucketName
+                    + " does not exist or user lacks adequate permissions to access it.");
+            System.exit(1);
         }
 
         KeyAttributesMap attributes = null;
@@ -290,17 +273,20 @@ public class GCSSampleApp {
             case VERSION:
                 System.out.println(Version.getFullVersion());
                 break;
+            default:
+                usage();
+                break;
         }
     }
 
     public static MetadataMap getMetadataMap() {
-        MetadataMap mApplicationMetadata = new MetadataMap();
-        mApplicationMetadata.set("ionic-application-name", "IonicGCSExample");
-        mApplicationMetadata.set("ionic-application-version", Version.getFullVersion());
-        mApplicationMetadata.set("ionic-client-type", "IPCS GCS");
-        mApplicationMetadata.set("ionic-client-version", Version.getFullVersion());
+        MetadataMap applicationMetadata = new MetadataMap();
+        applicationMetadata.set("ionic-application-name", "IonicGCSExample");
+        applicationMetadata.set("ionic-application-version", Version.getFullVersion());
+        applicationMetadata.set("ionic-client-type", "IPCS GCS");
+        applicationMetadata.set("ionic-client-version", Version.getFullVersion());
 
-        return mApplicationMetadata;
+        return applicationMetadata;
     }
 
     public static KeyAttributesMap parseAttributes(String str) {
@@ -333,10 +319,11 @@ public class GCSSampleApp {
     private static void usage() {
         System.out.println("Usage: prog <put<x> command> | <get<x> command> | version");
         System.out.println("put<x> commands:");
-        System.out.println("\tNOTE: <attributes> for these commands is a list of comma delimited tuples " +
-            "with each tuple composed of a key followed by a colon delimited list of values");
-        System.out.println( "\t\t<key>:<value>[:<value>]…[,<key>:<value>[:<value>]…]…");
-        System.out.println( "\t\tExample: attribute1:value1:value2,attribute2:value3");
+        System.out.println("\tNOTE: <attributes> for these commands is a list of comma delimited "
+                + "tuples with each tuple composed of a key followed by a colon delimited list of "
+                + "values");
+        System.out.println("\t\t<key>:<value>[:<value>]…[,<key>:<value>[:<value>]…]…");
+        System.out.println("\t\tExample: attribute1:value1:value2,attribute2:value3");
         System.out.println("\tputFile <bucketName> <blobName> <fileSourcePath>");
         System.out.println("\tputString <bucketName> <blobName> <contentString>");
         System.out.println("get<x> commands:");
