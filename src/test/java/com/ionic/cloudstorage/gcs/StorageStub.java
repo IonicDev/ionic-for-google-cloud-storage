@@ -1,5 +1,5 @@
 /*
- * (c) 2019-2020 Ionic Security Inc. By using this code, I agree to the LICENSE included, as well as the
+ * (c) 2019-2021 Ionic Security Inc. By using this code, I agree to the LICENSE included, as well as the
  * Terms & Conditions (https://dev.ionic.com/use.html) and the Privacy Policy
  * (https://www.ionic.com/privacy-notice/).
  */
@@ -18,6 +18,10 @@ import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.CopyWriter;
 import com.google.cloud.storage.HmacKey;
+import com.google.cloud.storage.PostPolicyV4;
+import com.google.cloud.storage.PostPolicyV4.ConditionV4Type;
+import com.google.cloud.storage.PostPolicyV4.PostConditionsV4;
+import com.google.cloud.storage.PostPolicyV4.PostFieldsV4;
 import com.google.cloud.storage.ServiceAccount;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobTargetOption;
@@ -30,7 +34,9 @@ import com.google.cloud.storage.StorageBatch;
 import com.google.cloud.storage.StorageOptions;
 import com.google.cloud.WriteChannel;
 import java.io.InputStream;
+import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -60,6 +66,15 @@ public class StorageStub implements Storage {
     public Acl createAcl(String bucket, Acl acl, Storage.BucketSourceOption... options) { return null; }
 
     public Acl createDefaultAcl(String bucket, Acl acl) { return null; }
+
+    public Blob createFrom(BlobInfo blobInfo, Path path, BlobWriteOption... options) throws IOException { return null; }
+
+    public Blob createFrom(BlobInfo blobInfo, Path path, int bufferSize, BlobWriteOption... options) throws IOException { return null; }
+
+
+    public Blob createFrom(BlobInfo blobInfo, InputStream content, BlobWriteOption... options)throws IOException { return null; }
+
+    public Blob createFrom(BlobInfo blobInfo, InputStream content, int bufferSize, BlobWriteOption... options) throws IOException { return null; }
 
     public List<Boolean> delete(BlobId... blobIds) { return null; }
 
@@ -166,4 +181,12 @@ public class StorageStub implements Storage {
     public com.google.api.gax.paging.Page<HmacKey.HmacKeyMetadata> listHmacKeys( Storage.ListHmacKeysOption... options) { return null; }
 
     public HmacKey.HmacKeyMetadata	updateHmacKeyState(HmacKey.HmacKeyMetadata hmacKeyMetadata, HmacKey.HmacKeyState state, Storage.UpdateHmacKeyOption... options) { return null; }
+
+    public PostPolicyV4 generateSignedPostPolicyV4(BlobInfo blobInfo, long duration, TimeUnit unit, PostFieldsV4 fields, PostConditionsV4 conditions, PostPolicyV4Option... options) { return null; }
+
+    public PostPolicyV4 generateSignedPostPolicyV4(BlobInfo blobInfo, long duration, TimeUnit unit, PostFieldsV4 fields,PostPolicyV4Option... options) { return null; }
+
+    public PostPolicyV4 generateSignedPostPolicyV4(BlobInfo blobInfo, long duration, TimeUnit unit, PostConditionsV4 conditions, PostPolicyV4Option... options) { return null; }
+
+    public PostPolicyV4 generateSignedPostPolicyV4(BlobInfo blobInfo, long duration, TimeUnit unit, PostPolicyV4Option... options) { return null; }
 }

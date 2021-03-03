@@ -1,5 +1,5 @@
 /*
- * (c) 2017-2020 Ionic Security Inc. By using this code, I agree to the Terms & Conditions
+ * (c) 2017-2021 Ionic Security Inc. By using this code, I agree to the Terms & Conditions
  * (https://dev.ionic.com/use) and the Privacy Policy (https://www.ionic.com/privacy-notice/).
  */
 
@@ -18,6 +18,10 @@ import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.CopyWriter;
 import com.google.cloud.storage.HmacKey;
+import com.google.cloud.storage.PostPolicyV4;
+import com.google.cloud.storage.PostPolicyV4.ConditionV4Type;
+import com.google.cloud.storage.PostPolicyV4.PostConditionsV4;
+import com.google.cloud.storage.PostPolicyV4.PostFieldsV4;
 import com.google.cloud.storage.ServiceAccount;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageBatch;
@@ -31,9 +35,11 @@ import com.ionic.sdk.agent.request.createkey.CreateKeysResponse;
 import com.ionic.sdk.agent.request.getkey.GetKeysResponse;
 import com.ionic.sdk.device.profile.persistor.DeviceProfilePersistorBase;
 import com.ionic.sdk.error.IonicException;
+import java.io.IOException;
 import java.io.InputStream;
 import java.lang.UnsupportedOperationException;
 import java.net.URL;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -43,11 +49,28 @@ import java.util.concurrent.TimeUnit;
 
 
 /**
- * An Ionic enabled implementation of of the Google {@link com.google.cloud.storage.Storage}
- * interface. create() and writer() methods will generate an Ionic Key and encrypt the blob contents
- * during storage. readAllBytes() and reader() methods will decrypt blob contents locally provided
- * the active profile on the {@link com.ionic.sdk.agent.Agent} has permission to fetch the
- * associated ionicKey.
+ * An Ionic enabled implementation of the Google {@link com.google.cloud.storage.Storage} interface.
+ * create(), createFrom() and writer() methods will generate an Ionic Key and encrypt the blob
+ * contents during storage. readAllBytes() and reader() methods will decrypt blob contents locally,
+ * provided the active profile on the {@link com.ionic.sdk.agent.Agent} has permission to fetch the
+ * associated ionicKey. Additional variants of the upload methods, which include a
+ * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key} as an argument are also
+ * present to allow specifying Ionic Key Attributes and Mutable Attribues. Variants of the download
+ * methods have been included where the return type is a pair containing the orginal return type and
+ * the Ionic {@link com.ionic.sdk.agent.request.getkey.GetKeysResponse.Key}.
+ *
+ * <p>Example of creating a CreateKeysRequest.Key and setting attributes and mutableAttributes.
+ *
+ * <pre>
+ * {
+ *     KeyAttributesMap attributes = new KeyAttributesMap();
+ *     KeyAttributesMap mutableAttributes = new KeyAttributesMap();
+ *     attributes.put("Attribute_Key1", Arrays.asList("Val1", "Val2", "Val3"));
+ *     mutableAttributes.put("Mutable_Attribute_Key1", Arrays.asList("Val1", "Val2", "Val3"));
+ *     CreateKeysRequest.Key reqKey =
+ *             new CreateKeysRequest.Key("", 1, attributes, mutableAttributes);
+ * }
+ * </pre>
  */
 public class GoogleIonicStorage implements Storage {
 
@@ -194,12 +217,17 @@ public class GoogleIonicStorage implements Storage {
     }
 
     /**
-     * Creates a new Ionic protected blob.
+     * Creates a new blob. Direct upload is used to upload {@code content}. For large content,
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}
+     * is recommended as it uses resumable upload.
      *
-     * {@inheritDoc}
-     *
-     * @return {@inheritDoc}
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param content a byte[] to store
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@code Blob} with complete information
      * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @see com.google.cloud.storage.Storage#create(BlobInfo, byte[], Storage.BlobTargetOption...)
      * @see <a href="https://cloud.google.com/storage/docs/hashes-etags">Hashes and ETags</a>
      */
     @Override
@@ -208,54 +236,41 @@ public class GoogleIonicStorage implements Storage {
     }
 
     /**
-     * Creates a new Ionic protected blob using a
+     * Creates a new blob. Direct upload is used to upload {@code content}. For large content,
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)} is
+     * recommended as it uses resumable upload. Uses a
      * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key} to specify Attributes on
      * the associated Ionic Key.
-     *
-     * <p>Example of creating a CreateKeysRequest.Key
-     * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}.
-     *
-     * <pre>
-     * {
-     *     &#64;code
-     *     KeyAttributesMap attributes = new KeyAttributesMap();
-     *     KeyAttributesMap mutableAttributes = new KeyAttributesMap();
-     *     attributes.put("Attribute_Key1", Arrays.asList("Val1", "Val2", "Val3"));
-     *     mutableAttributes.put("Mutable_Attribute_Key1", Arrays.asList("Val1", "Val2", "Val3"));
-     *     CreateKeysRequest.Key reqKey =
-     *             new CreateKeysRequest.Key("", 1, attributes, mutableAttributes);
-     * }
-     * </pre>
      *
      * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
      * @param content a byte[] to store
      * @param key a {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}
      * @param options an optional array of
      *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
-     * @return a [@code Blob} with complete information
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
      * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
-     * @see #create(BlobInfo, byte[], Storage.BlobTargetOption...)
+     * @see com.google.cloud.storage.Storage#create(BlobInfo, byte[], Storage.BlobTargetOption...)
      * @see <a href="https://cloud.google.com/storage/docs/hashes-etags">Hashes and ETags</a>
      */
     public Blob create(BlobInfo blobInfo, byte[] content, CreateKeysRequest.Key key,
             BlobTargetOption... options) {
-        KeyInfoPair pair = null;
-        try {
-            pair = createIonicKey(key, blobInfo);
-        } catch (IonicException e) {
-            throw new StorageException(e.getReturnCode(), e.getLocalizedMessage());
-        }
+        KeyInfoPair pair = createIonicKey(key, blobInfo);
         return googleStorage.create(pair.info, content,
                 targetOptionsWithEncrytion(pair.key, options));
     }
 
     /**
-     * Creates a new Ionic protected blob.
+     * Creates a new blob. Deprecated, use
+     * {@link #create(BlobInfo, byte[], Storage.BlobTargetOption...)} instead.
      *
-     * {@inheritDoc}
-     *
-     * @return {@inheritDoc}
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param content an {@link java.io.InputStream}
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobWriteOption}s
+     * @return a {@code Blob} with complete information
      * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @see com.google.cloud.storage.Storage#create(BlobInfo, InputStream,
+     *      Storage.BlobWriteOption...)
      * @see <a href="https://cloud.google.com/storage/docs/hashes-etags">Hashes and ETags</a>
      */
     @Deprecated
@@ -265,42 +280,50 @@ public class GoogleIonicStorage implements Storage {
     }
 
     /**
-     * Creates a new Ionic protected blob. Deprecated, use
+     * Creates a new blob. Deprecated, use
      * {@link #create(BlobInfo, byte[], CreateKeysRequest.Key, Storage.BlobTargetOption...)}
      * instead.
      *
-     * @return a [@code Blob} with complete information
      * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
-     * @param content a {@link java.io.InputStream}
+     * @param content an {@link java.io.InputStream}
      * @param key a {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}
      * @param options an optional array of
-     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     *        {@link com.google.cloud.storage.Storage.BlobWriteOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
      * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
-     * @see #create(BlobInfo, byte[], CreateKeysRequest.Key, Storage.BlobTargetOption...)
+     * @see com.google.cloud.storage.Storage#create(BlobInfo, InputStream,
+     *      Storage.BlobWriteOption...)
      * @see <a href="https://cloud.google.com/storage/docs/hashes-etags">Hashes and ETags</a>
      */
     @Deprecated
     public Blob create(BlobInfo blobInfo, InputStream content, CreateKeysRequest.Key key,
             BlobWriteOption... options) {
-        KeyInfoPair pair = null;
-        try {
-            pair = createIonicKey(key, blobInfo);
-        } catch (IonicException e) {
-            throw new StorageException(e.getReturnCode(), e.getLocalizedMessage());
-        }
+        KeyInfoPair pair = createIonicKey(key, blobInfo);
         return googleStorage.create(pair.info, content,
                 writeOptionsWithEncrytion(pair.key, options));
     }
 
     /**
-     * Creates a new Ionic protected blob.
+     * Creates a new blob with the sub array of the given byte array. Direct upload is used to
+     * upload content. For large content,
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)} is
+     * recommended as it uses resumable upload. MD5 and CRC32C hashes of content are computed
+     * and used for validating transferred data. Accepts a userProject Storage.BlobGetOption option,
+     *  which defines the project id to assign operational costs.
      *
-     * {@inheritDoc}
-     *
-     * @return {@inheritDoc}
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param content a byte[] to store
+     * @param offset number of bytes off from the start of content to upload
+     * @param length total number of bytes from content to upload
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
      * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @see com.google.cloud.storage.Storage#create(BlobInfo, byte[], int, int,
+     *       Storage.BlobTargetOption...)
      * @see <a href="https://cloud.google.com/storage/docs/hashes-etags">Hashes and ETags</a>
      */
+
     public Blob create(BlobInfo blobInfo, byte[] content, int offset, int length,
             Storage.BlobTargetOption... options) {
         return create(blobInfo, content, offset, length, new CreateKeysRequest.Key(""), options);
@@ -308,24 +331,14 @@ public class GoogleIonicStorage implements Storage {
 
 
     /**
-     * Creates a new Ionic protected blob using a
+     * Creates a new blob with the sub array of the given byte array. Direct upload is used to
+     * upload content. For large content,
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)} is
+     * recommended as it uses resumable upload. MD5 and CRC32C hashes of content are computed
+     * and used for validating transferred data. Accepts a userProject Storage.BlobGetOption option,
+     *  which defines the project id to assign operational costs. Uses a
      * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key} to specify Attributes on
      * the associated Ionic Key.
-     *
-     * <p>Example of creating a CreateKeysRequest.Key
-     * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}.
-     *
-     * <pre>
-     * {
-     *     &#64;code
-     *     KeyAttributesMap attributes = new KeyAttributesMap();
-     *     KeyAttributesMap mutableAttributes = new KeyAttributesMap();
-     *     attributes.put("Attribute_Key1", Arrays.asList("Val1", "Val2", "Val3"));
-     *     mutableAttributes.put("Mutable_Attribute_Key1", Arrays.asList("Val1", "Val2", "Val3"));
-     *     CreateKeysRequest.Key reqKey =
-     *             new CreateKeysRequest.Key("", 1, attributes, mutableAttributes);
-     * }
-     * </pre>
      *
      * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
      * @param content a byte[] to store
@@ -334,9 +347,10 @@ public class GoogleIonicStorage implements Storage {
      * @param key a {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}
      * @param options an optional array of
      *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
-     * @return a [@code Blob} with complete information
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
      * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
-     * @see #create(BlobInfo, byte[], Storage.BlobTargetOption...)
+     * @see com.google.cloud.storage.Storage#create(BlobInfo, byte[], int, int,
+     *      Storage.BlobTargetOption...)
      * @see <a href="https://cloud.google.com/storage/docs/hashes-etags">Hashes and ETags</a>
      */
     public Blob create(BlobInfo blobInfo, byte[] content, int offset, int length,
@@ -345,10 +359,256 @@ public class GoogleIonicStorage implements Storage {
         return create(blobInfo, subContent, key, options);
     }
 
+
     /**
-     * {@inheritDoc} Warning: Clearing an ecrypted blob's metadata or modifying the value of the
+     * Uploads path to the blob using
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}.
+     * By default any MD5 and CRC32C values in the given blobInfo are ignored unless requested via
+     * the {@link com.google.cloud.storage.Storage.BlobWriteOption#md5Match()} and
+     * {@link com.google.cloud.storage.Storage.BlobWriteOption#crc32cMatch()} options.
+     * Folder upload is not supported.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param path an {@link java.nio.file.Path}
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @throws IOException on I/O error
+     * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @see com.google.cloud.storage.Storage#createFrom(BlobInfo, Path, Storage.BlobWriteOption...)
+     */
+    @Override
+    public Blob createFrom(BlobInfo blobInfo, Path path, BlobWriteOption... options)
+            throws IOException {
+        return createFrom(blobInfo, path, new CreateKeysRequest.Key(""), options);
+    }
+
+    /**
+     * Uploads path to the blob using
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}.
+     * By default any MD5 and CRC32C values in the given blobInfo are ignored unless requested via
+     * the {@link com.google.cloud.storage.Storage.BlobWriteOption#md5Match()} and
+     * {@link com.google.cloud.storage.Storage.BlobWriteOption#crc32cMatch()} options.
+     * Folder upload is not supported. Uses a
+     * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key} to specify Attributes on
+     * the associated Ionic Key.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param path an {@link java.nio.file.Path}
+     * @param key a {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @throws IOException on I/O error
+     * @see com.google.cloud.storage.Storage#createFrom(BlobInfo, Path, Storage.BlobWriteOption...)
+     */
+    public Blob createFrom(BlobInfo blobInfo, Path path, CreateKeysRequest.Key key,
+            BlobWriteOption... options) throws IOException {
+        KeyInfoPair pair = createIonicKey(key, blobInfo);
+        return googleStorage.createFrom(pair.info, path,
+                writeOptionsWithEncrytion(pair.key, options));
+    }
+
+    /**
+     * Uploads path to the blob using
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}.
+     * By default any MD5 and CRC32C values in the given blobInfo are ignored unless requested via
+     * the {@link com.google.cloud.storage.Storage.BlobWriteOption#md5Match()} and
+     * {@link com.google.cloud.storage.Storage.BlobWriteOption#crc32cMatch()} options.
+     * Folder upload is not supported.
+     *
+     * {@link #createFrom(BlobInfo, Path, BlobWriteOption...)} invokes this method with a buffer
+     * size of 15 MiB. Users can pass alternative values. Larger buffer sizes might improve the
+     * upload performance but require more memory. This can cause an OutOfMemoryError or add
+     * significant garbage collection overhead. Smaller buffer sizes reduce memory consumption,
+     * that is noticeable when uploading many objects in parallel. Buffer sizes less than 256 KiB
+     * are treated as 256 KiB.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param path an {@link java.nio.file.Path}
+     * @param bufferSize an int
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @throws IOException on I/O error
+     * @see com.google.cloud.storage.Storage#createFrom(BlobInfo, Path, int,
+     *      Storage.BlobWriteOption...)
+     */
+    @Override
+    public Blob createFrom(BlobInfo blobInfo, Path path, int bufferSize, BlobWriteOption... options)
+            throws IOException {
+        return createFrom(blobInfo, path, bufferSize, new CreateKeysRequest.Key(""), options);
+    }
+
+    /**
+     * Uploads path to the blob using
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}.
+     * By default any MD5 and CRC32C values in the given blobInfo are ignored unless requested via
+     * the {@link com.google.cloud.storage.Storage.BlobWriteOption#md5Match()} and
+     * {@link com.google.cloud.storage.Storage.BlobWriteOption#crc32cMatch()} options.
+     * Folder upload is not supported. Uses a
+     * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key} to specify Attributes on
+     * the associated Ionic Key.
+     *
+     * {@link #createFrom(BlobInfo, Path, BlobWriteOption...)} invokes this method with a buffer
+     * size of 15 MiB. Users can pass alternative values. Larger buffer sizes might improve the
+     * upload performance but require more memory. This can cause an OutOfMemoryError or add
+     * significant garbage collection overhead. Smaller buffer sizes reduce memory consumption,
+     * that is noticeable when uploading many objects in parallel. Buffer sizes less than 256 KiB
+     * are treated as 256 KiB.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param path an {@link java.nio.file.Path}
+     * @param bufferSize an int
+     * @param key a {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @throws IOException on I/O error
+     * @see com.google.cloud.storage.Storage#createFrom(BlobInfo, Path, int,
+     *      Storage.BlobWriteOption...)
+     */
+    public Blob createFrom(BlobInfo blobInfo, Path path, int bufferSize, CreateKeysRequest.Key key,
+            BlobWriteOption... options) throws IOException {
+        KeyInfoPair pair = createIonicKey(key, blobInfo);
+        return googleStorage.createFrom(pair.info, path, bufferSize,
+                writeOptionsWithEncrytion(pair.key, options));
+    }
+
+    /**
+     * Reads bytes from an input stream and uploads those bytes to the blob using
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}.
+     * By default any MD5 and CRC32C values in the given blobInfo are ignored unless requested via
+     * the {@link com.google.cloud.storage.Storage.BlobWriteOption#md5Match()} and
+     * {@link com.google.cloud.storage.Storage.BlobWriteOption#crc32cMatch()} options.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param content an {@link java.io.InputStream}
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @throws IOException on I/O error
+     * @see com.google.cloud.storage.Storage#createFrom(BlobInfo, InputStream,
+     *      Storage.BlobWriteOption...)
+     */
+    @Override
+    public Blob createFrom(BlobInfo blobInfo, InputStream content, BlobWriteOption... options)
+            throws IOException {
+        KeyInfoPair pair = null;
+        return createFrom(blobInfo, content, new CreateKeysRequest.Key(""), options);
+    }
+
+    /**
+     * Reads bytes from an input stream and uploads those bytes to the blob using
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}.
+     * By default any MD5 and CRC32C values in the given blobInfo are ignored unless requested via
+     * the {@link com.google.cloud.storage.Storage.BlobWriteOption#md5Match()} and
+     * {@link com.google.cloud.storage.Storage.BlobWriteOption#crc32cMatch()} options.
+     * Uses a
+     * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key} to specify Attributes on
+     * the associated Ionic Key.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param content an {@link java.io.InputStream}
+     * @param key a {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @throws IOException on I/O error
+     * @see com.google.cloud.storage.Storage#createFrom(BlobInfo, InputStream,
+     *      Storage.BlobWriteOption...)
+     */
+    public Blob createFrom(BlobInfo blobInfo, InputStream content, CreateKeysRequest.Key key,
+            BlobWriteOption... options) throws IOException {
+        KeyInfoPair pair = createIonicKey(key, blobInfo);
+        return googleStorage.createFrom(pair.info, content,
+                writeOptionsWithEncrytion(pair.key, options));
+    }
+
+    /**
+     * Reads bytes from an input stream and uploads those bytes to the blob using
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}.
+     * By default any MD5 and CRC32C values in the given blobInfo are ignored unless requested via
+     * the {@link com.google.cloud.storage.Storage.BlobWriteOption#md5Match()} and
+     * {@link com.google.cloud.storage.Storage.BlobWriteOption#crc32cMatch()} options.
+     *
+     * {@link #createFrom(BlobInfo, InputStream, BlobWriteOption...)} invokes this method with a
+     * buffer size of 15 MiB. Users can pass alternative values. Larger buffer sizes might improve
+     * the upload performance but require more memory. This can cause an OutOfMemoryError or add
+     * significant garbage collection overhead. Smaller buffer sizes reduce memory consumption,
+     * that is noticeable when uploading many objects in parallel. Buffer sizes less than 256 KiB
+     * are treated as 256 KiB.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param content an {@link java.io.InputStream}
+     * @param bufferSize an int
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @throws IOException on I/O error
+     * @see com.google.cloud.storage.Storage#createFrom(BlobInfo, InputStream, int,
+     *      Storage.BlobWriteOption...)
+     */
+    @Override
+    public Blob createFrom(BlobInfo blobInfo, InputStream content, int bufferSize,
+            BlobWriteOption... options) throws IOException {
+        return createFrom(blobInfo, content, bufferSize, new CreateKeysRequest.Key(""), options);
+    }
+
+    /**
+     * Reads bytes from an input stream and uploads those bytes to the blob using
+     * {@link com.google.cloud.storage.Storage#writer(BlobInfo, Storage.BlobWriteOption...)}.
+     * By default any MD5 and CRC32C values in the given blobInfo are ignored unless requested via
+     * the {@link com.google.cloud.storage.Storage.BlobWriteOption#md5Match()} and
+     * {@link com.google.cloud.storage.Storage.BlobWriteOption#crc32cMatch()} options.
+     * Uses a
+     * {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key} to specify Attributes on
+     * the associated Ionic Key.
+     *
+     * {@link #createFrom(BlobInfo, InputStream, BlobWriteOption...)} invokes this method with a
+     * buffer size of 15 MiB. Users can pass alternative values. Larger buffer sizes might improve
+     * the upload performance but require more memory. This can cause an OutOfMemoryError or add
+     * significant garbage collection overhead. Smaller buffer sizes reduce memory consumption,
+     * that is noticeable when uploading many objects in parallel. Buffer sizes less than 256 KiB
+     * are treated as 256 KiB.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param content an {@link java.io.InputStream}
+     * @param bufferSize an int
+     * @param key a {@link com.ionic.sdk.agent.request.createkey.CreateKeysRequest.Key}
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @throws StorageException upon failure, may wrap an {@link com.ionic.sdk.error.IonicException}
+     * @throws IOException on I/O error
+     * @see com.google.cloud.storage.Storage#createFrom(BlobInfo, InputStream, int,
+     *      Storage.BlobWriteOption...)
+     */
+    public Blob createFrom(BlobInfo blobInfo, InputStream content, int bufferSize,
+            CreateKeysRequest.Key key, BlobWriteOption... options) throws IOException {
+        KeyInfoPair pair = createIonicKey(key, blobInfo);
+        return googleStorage.createFrom(pair.info, content, bufferSize,
+                writeOptionsWithEncrytion(pair.key, options));
+    }
+
+
+    /**
+     * Update a blob.
+     * Warning: Clearing an ecrypted blob's metadata or modifying the value of the
      * 'ionic-key-id' entry in the blob's metadata map will cause the blob contents to be
      * unrecoverable.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @see com.google.cloud.storage.Storage#update(BlobInfo, BlobTargetOption...)
      */
     @Override
     public Blob update(BlobInfo blobInfo, BlobTargetOption... options) {
@@ -356,9 +616,14 @@ public class GoogleIonicStorage implements Storage {
     }
 
     /**
-     * {@inheritDoc} Warning: Clearing an ecrypted blob's metadata or modifying the value of the
+     * Update a blob.
+     * Warning: Clearing an ecrypted blob's metadata or modifying the value of the
      * 'ionic-key-id' entry in the blob's metadata map will cause the blob contents to be
      * unrecoverable.
+     *
+     * @param blobInfo a {@link com.google.cloud.storage.BlobInfo}
+     * @return a {@link com.google.cloud.storage.Blob} with complete information
+     * @see com.google.cloud.storage.Storage#update(BlobInfo, BlobTargetOption...)
      */
     @Override
     public Blob update(BlobInfo blobInfo) {
@@ -403,6 +668,10 @@ public class GoogleIonicStorage implements Storage {
      * {@link com.ionic.sdk.agent.Agent Agent's} active profile does not have permission to
      * fetch the associated ionicKey.
      *
+     * @param bucketName the bucket to store the blob in
+     * @param blobName the name for the blob to be stored as
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
      * @return the blob's content
      * @throws StorageException upon failure
      * @see com.google.cloud.storage.Storage#readAllBytes(String, String, BlobSourceOption...)
@@ -438,6 +707,9 @@ public class GoogleIonicStorage implements Storage {
      * loaded {@link com.ionic.sdk.device.profile.persistor.DeviceProfilePersistorBase Profile} does
      * not have permission to fetch the associated ionicKey.
      *
+     * @param blobId the {@link com.google.cloud.storage.BlobId} to be stored
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
      * @return the blob's content
      * @throws StorageException upon failure
      * @see com.google.cloud.storage.Storage#readAllBytes(BlobId, BlobSourceOption...)
@@ -545,6 +817,9 @@ public class GoogleIonicStorage implements Storage {
      * {@link com.ionic.sdk.device.profile.persistor.DeviceProfilePersistorBase Profile} does not
      * have permission to fetch the associated ionicKey or if the blob is not Ionic protected.
      *
+     * @param blob the name of the blob to be read
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
      * @return a {@link com.google.cloud.ReadChannel}
      * @throws StorageException upon failure
      * @see com.google.cloud.storage.Storage#reader(BlobId, BlobSourceOption...)
@@ -586,8 +861,19 @@ public class GoogleIonicStorage implements Storage {
     }
 
     /**
-     * {@inheritDoc}
+     * Returns a IonicKeyReadChannelPair containing a
+     * {@link com.ionic.sdk.agent.request.createkey.CreateKeysResponse.Key} and a channel for
+     * reading the blob's content. If {@code blob.generation()} is set data corresponding to that
+     * generation is read. The blob's latest generation is read. If the blob changes while reading
+     * (i.e. {@link com.google.cloud.storage.BlobInfo#getEtag()} changes), subsequent calls to
+     * {@code blobReadChannel.read(ByteBuffer)} may throw {@link StorageException}. Will throw a
+     * StorageException if the the loaded
+     * {@link com.ionic.sdk.device.profile.persistor.DeviceProfilePersistorBase Profile} does not
+     * have permission to fetch the associated ionicKey or if the blob is not Ionic protected.
      *
+     * @param blobInfo the {@link com.google.cloud.storage.BlobId} of the blob to be read
+     * @param options an optional array of
+     *        {@link com.google.cloud.storage.Storage.BlobTargetOption}s
      * @return a {@link com.google.cloud.WriteChannel}
      * @throws StorageException upon failure
      * @see com.google.cloud.storage.Storage#writer(BlobInfo, BlobWriteOption...)
@@ -639,12 +925,7 @@ public class GoogleIonicStorage implements Storage {
      */
     public WriteChannel writer(BlobInfo blobInfo, CreateKeysRequest.Key key,
             BlobWriteOption... options) {
-        KeyInfoPair pair = null;
-        try {
-            pair = createIonicKey(key, blobInfo);
-        } catch (IonicException e) {
-            throw new StorageException(e.getReturnCode(), e.getLocalizedMessage());
-        }
+        KeyInfoPair pair = createIonicKey(key, blobInfo);
         return googleStorage.writer(pair.info, writeOptionsWithEncrytion(pair.key, options));
     }
 
@@ -688,8 +969,7 @@ public class GoogleIonicStorage implements Storage {
         }
     }
 
-    protected KeyInfoPair createIonicKey(CreateKeysRequest.Key key, BlobInfo blobInfoIn)
-            throws IonicException {
+    protected KeyInfoPair createIonicKey(CreateKeysRequest.Key key, BlobInfo blobInfoIn) {
         KeyAttributesMap attributesMap = new KeyAttributesMap();
         Map<String, String> blobInfoInMetadata = blobInfoIn.getMetadata();
         HashMap<String, String> blobInfoOutMetadata;
@@ -708,8 +988,12 @@ public class GoogleIonicStorage implements Storage {
         attributesMap.putAll(attributes);
         attributesMap.putAll(key.getAttributesMap());
         Agent agent = Agent.clone(this.agent);
-        CreateKeysResponse.Key ionicKey =
-                agent.createKey(attributesMap, key.getMutableAttributesMap()).getFirstKey();
+        CreateKeysResponse.Key ionicKey;
+        try {
+            ionicKey = agent.createKey(attributesMap, key.getMutableAttributesMap()).getFirstKey();
+        } catch (IonicException e) {
+            throw new StorageException(e.getReturnCode(), e.getLocalizedMessage());
+        }
         blobInfoOutMetadata.put(IONICMETACONSTANT, ionicKey.getId());
         BlobInfo blobInfoOut = blobInfoIn.toBuilder().setMetadata(blobInfoOutMetadata).build();
         return new KeyInfoPair(ionicKey, blobInfoOut);
@@ -1095,5 +1379,35 @@ public class GoogleIonicStorage implements Storage {
     @Override
     public ServiceAccount getServiceAccount(String projectId) {
         return googleStorage.getServiceAccount(projectId);
+    }
+
+    /**@deprecated passthrough method. Don't document.*/
+    @Override
+    public PostPolicyV4 generateSignedPostPolicyV4(BlobInfo blobInfo, long duration, TimeUnit unit,
+            PostFieldsV4 fields, PostConditionsV4 conditions, PostPolicyV4Option... options) {
+        return googleStorage.generateSignedPostPolicyV4(blobInfo, duration, unit, fields,
+                conditions, options);
+    }
+
+    /**@deprecated passthrough method. Don't document.*/
+    @Override
+    public PostPolicyV4 generateSignedPostPolicyV4(BlobInfo blobInfo, long duration, TimeUnit unit,
+            PostFieldsV4 fields,PostPolicyV4Option... options) {
+        return googleStorage.generateSignedPostPolicyV4(blobInfo, duration, unit, fields, options);
+    }
+
+    /**@deprecated passthrough method. Don't document.*/
+    @Override
+    public PostPolicyV4 generateSignedPostPolicyV4(BlobInfo blobInfo, long duration, TimeUnit unit,
+            PostConditionsV4 conditions, PostPolicyV4Option... options) {
+        return googleStorage.generateSignedPostPolicyV4(blobInfo, duration, unit, conditions,
+                options);
+    }
+
+    /**@deprecated passthrough method. Don't document.*/
+    @Override
+    public PostPolicyV4 generateSignedPostPolicyV4(BlobInfo blobInfo, long duration, TimeUnit unit,
+            PostPolicyV4Option... options) {
+        return googleStorage.generateSignedPostPolicyV4(blobInfo, duration, unit, options);
     }
 }
