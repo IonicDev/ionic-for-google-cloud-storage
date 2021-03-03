@@ -54,9 +54,9 @@ public class GCSSampleApp {
         // google storage as the backing service for this object.
 
         // Load a plain-text device profile (SEP) from disk
-        String peristorPath =
+        String persistorPath =
                 Paths.get(HOME + "/.ionicsecurity/profiles.pt").toFile().getCanonicalPath();
-        Agent agent = new Agent(new DeviceProfilePersistorPlainText(peristorPath));
+        Agent agent = new Agent(new DeviceProfilePersistorPlainText(persistorPath));
         agent.setMetadata(getMetadataMap());
 
         return new GoogleIonicStorage(agent, storage);
@@ -281,9 +281,9 @@ public class GCSSampleApp {
 
     public static MetadataMap getMetadataMap() {
         MetadataMap applicationMetadata = new MetadataMap();
-        applicationMetadata.set("ionic-application-name", "IonicGCSExample");
+        applicationMetadata.set("ionic-application-name", "MachinaGCSExample");
         applicationMetadata.set("ionic-application-version", Version.getFullVersion());
-        applicationMetadata.set("ionic-client-type", "IPCS GCS");
+        applicationMetadata.set("ionic-client-type", "Machina Tools for Cloud Storage (GCS Java)");
         applicationMetadata.set("ionic-client-version", Version.getFullVersion());
 
         return applicationMetadata;

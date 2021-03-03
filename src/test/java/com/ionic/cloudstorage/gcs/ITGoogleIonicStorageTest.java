@@ -1,5 +1,5 @@
 /*
- * (c) 2017-2020 Ionic Security Inc. By using this code, I agree to the Terms & Conditions
+ * (c) 2017-2021 Ionic Security Inc. By using this code, I agree to the Terms & Conditions
  * (https://dev.ionic.com/use) and the Privacy Policy (https://www.ionic.com/privacy-notice/).
  */
 
@@ -83,6 +83,9 @@ public class ITGoogleIonicStorageTest {
         assertNotNull("Precondition failure, no Bucket specified", testBucket);
     }
 
+    // There are 3 differnt underlying primatives for create & createFrom each of which is tested
+    // separately: create(bytes), create(inputStream) and createFrom().
+
     @Test
     public void createAndReadAllBytes() {
         String key = TestUtils.getTestObjectKey();
@@ -109,6 +112,22 @@ public class ITGoogleIonicStorageTest {
         BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(testBucket, key)).setContentType("application/octet-stream").build();
         log.info("Creating Blob " + key + " in bucket " + testBucket + " with Google Ionic Storage");
         ionicStorage.create(blobInfo, IOUtils.toInputStream(testString));
+        log.info("Reading Blob " + key + " from bucket " + testBucket + " with Google Ionic Storage");
+        byte[] blobBytes = ionicStorage.readAllBytes(BlobId.of(testBucket, key));
+        assertTrue("Decrypted Blob content does not match original String",
+            Arrays.equals(blobBytes, testString.getBytes()));
+    }
+
+    @Test
+    public void createFromStreamAndReadAllBytes() throws IOException {
+        String key = TestUtils.getTestObjectKey();
+        if (key == null) {
+            key = "createAndReadAllBytes";
+        }
+
+        BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(testBucket, key)).setContentType("application/octet-stream").build();
+        log.info("Creating Blob " + key + " in bucket " + testBucket + " with Google Ionic Storage");
+        ionicStorage.createFrom(blobInfo, IOUtils.toInputStream(testString));
         log.info("Reading Blob " + key + " from bucket " + testBucket + " with Google Ionic Storage");
         byte[] blobBytes = ionicStorage.readAllBytes(BlobId.of(testBucket, key));
         assertTrue("Decrypted Blob content does not match original String",
@@ -249,6 +268,39 @@ public class ITGoogleIonicStorageTest {
         BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(testBucket, key)).setContentType("application/octet-stream").build();
         log.info("Creating Blob " + key + " in bucket " + testBucket + " with Google Ionic Storage");
         ionicStorage.create(blobInfo, testString.getBytes(), ionicRequestKey);
+        log.info("Reading Blob " + key + " from bucket " + testBucket + " with Google Ionic Storage");
+        GoogleIonicStorage.IonicKeyBytesPair pair = ionicStorage.readAllBytesAndKey(BlobId.of(testBucket, key));
+        byte[] blobBytes = pair.getByteArray();
+        GetKeysResponse.Key ionicKey = pair.getKey();
+
+        assertTrue("Decrypted Blob content does not match original String",
+            Arrays.equals(blobBytes, testString.getBytes()));
+
+        assertTrue("Response Key Attributes do not match specified Attributes",
+            ionicKey.getAttributesMap().equals(attributes));
+
+        assertTrue("Response Key Mutable Attributes do not match specified Mutable Attributes",
+            ionicKey.getMutableAttributesMap().equals(mutableAttributes));
+    }
+
+    @Test
+    public void createFromStreamAndReadAllBytesWithAttributes() throws IonicException, IOException {
+        String key = TestUtils.getTestObjectKey();
+        if (key == null) {
+            key = "createAndReadAllBytesWithAttributes";
+        }
+
+        ionicStorage.setEnabledMetadataCapture(true);
+
+        KeyAttributesMap attributes = new KeyAttributesMap();
+        KeyAttributesMap mutableAttributes = new KeyAttributesMap();
+        attributes.put("Attribute", Arrays.asList("Val1", "Val2", "Val3"));
+        mutableAttributes.put("Mutable-Attribute", Arrays.asList("Val1", "Val2", "Val3"));
+        CreateKeysRequest.Key ionicRequestKey = new CreateKeysRequest.Key("", 1, attributes, mutableAttributes);
+
+        BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(testBucket, key)).setContentType("application/octet-stream").build();
+        log.info("Creating Blob " + key + " in bucket " + testBucket + " with Google Ionic Storage");
+        ionicStorage.createFrom(blobInfo, IOUtils.toInputStream(testString), ionicRequestKey);
         log.info("Reading Blob " + key + " from bucket " + testBucket + " with Google Ionic Storage");
         GoogleIonicStorage.IonicKeyBytesPair pair = ionicStorage.readAllBytesAndKey(BlobId.of(testBucket, key));
         byte[] blobBytes = pair.getByteArray();
